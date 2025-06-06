@@ -234,6 +234,8 @@ class SystemLevelChannel(ChannelModel):
         # pylint: disable=unbalanced-tuple-unpacking
         h, delays = self._cir_sampler(num_time_samples, sampling_frequency,
                                       k_factor, rays, topology, c_ds)
+        
+        tf.print(f"[SystemLevelChannel-call] h{tf.shape(h)}")
 
         # Step 12
         h = self._step_12(h, sf)
