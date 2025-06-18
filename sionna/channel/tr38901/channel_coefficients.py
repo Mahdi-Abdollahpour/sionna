@@ -812,12 +812,19 @@ class ChannelCoefficientsGenerator:
         h_full : [batch size, num_tx, num rx, num clusters, num rays, num rx antennas, num tx antennas, num time steps], tf.complex
             NLoS channel matrix
         """
-
+        # [batch size, num TXs, num RXs, num clusters, num rays, 2, 2]
         h_phase = self._step_11_phase_matrix(phi, rays)
+        print(f"[step11nls] h_phase [batch size, num TXs, num RXs, num clusters, num rays, 2, 2]:{tf.shape(h_phase)}")
+
+        # [batch size, num_tx, num rx, num clusters, num rays, num rx antennas, num tx antennas]
         h_field = self._step_11_field_matrix(topology, rays.aoa, rays.aod,
                                                     rays.zoa, rays.zod, h_phase)
+        
+        # [batch size, num_tx, num rx, num clusters, num rays, num rx antennas, num tx antennas]        
         h_array = self._step_11_array_offsets(topology, rays.aoa, rays.aod,
                                                             rays.zoa, rays.zod)
+        
+        # [batch size, num_tx, num rx, num clusters, num rays, num time steps]
         h_doppler = self._step_11_doppler_matrix(topology, rays.aoa, rays.zoa,
                                                                             t)
         h_full = tf.expand_dims(h_field*h_array, -1) * tf.expand_dims(
