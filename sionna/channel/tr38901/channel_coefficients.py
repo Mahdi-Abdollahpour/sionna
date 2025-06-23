@@ -606,12 +606,20 @@ class ChannelCoefficientsGenerator:
 
         lambda_0 = self._lambda_0
 
+        # spherical unit vectors of rays
+        # [batch size, num TXs, num RXs, num clusters, num rays, 3]
         r_hat_rx = self._unit_sphere_vector(zoa, aoa)
         r_hat_rx = tf.squeeze(r_hat_rx, axis=r_hat_rx.shape.rank-1)
         r_hat_tx = self._unit_sphere_vector(zod, aod)
         r_hat_tx = tf.squeeze(r_hat_tx, axis=r_hat_tx.shape.rank-1)
+
+        # the location vector of receive antenna element u and  the location vector
+        #  of transmit antenna element s
+        # [batch size, num RXs, num_rx_antennas, 3]
         d_bar_rx = self._step_11_get_rx_antenna_positions(topology)
+        # [batch size, num_tx, num_tx_antennas, 3]
         d_bar_tx = self._step_11_get_tx_antenna_positions(topology)
+
 
         # Reshape tensors for broadcasting
         # r_hat_rx/tx have
@@ -657,6 +665,8 @@ class ChannelCoefficientsGenerator:
                                     self._dtype.real_dtype), exp_tx))
         exp_tx = tf.expand_dims(exp_tx, -2)
 
+        # exp_rx [batch_size, num_tx, num_rx, num_clusters, num_rays, num_rx_antennas, 1]
+        # exp_tx [batch_size, num_tx, num_rx, num_clusters, num_rays, 1, num_tx_antennas]
         h_array = exp_rx*exp_tx
 
         return h_array
@@ -686,6 +696,8 @@ class ChannelCoefficientsGenerator:
 
         h_phase : [batch size, num_tx, num rx, num clusters, num rays, num time steps], tf.complex
             Matrix with phase shifts due to mobility in (7.5-22)
+            MHD: The shape looks wrong --> it should be:
+            [batch size, num TXs, num RXs, num clusters, num rays, 2, 2]
 
         Output
         ------
@@ -710,16 +722,20 @@ class ChannelCoefficientsGenerator:
 
         # Compute transmitted and received field strength for all antennas
         # in the LCS  and convert to GCS
+        # [batch size, num TXs, num RXs, num clusters, num rays, 2]
         f_tx_pol1_prime = tf.stack(self._tx_array.ant_pol1.field(zod_prime,
                                                             aod_prime), axis=-1)
         f_rx_pol1_prime = tf.stack(self._rx_array.ant_pol1.field(zoa_prime,
                                                             aoa_prime), axis=-1)
 
+        # [batch size, num TXs, num RXs, num clusters, num rays, 2, 1]
         f_tx_pol1 = self._l2g_response(f_tx_pol1_prime, tx_orientations,
             zod, aod)
-
+        
+        # [batch size, num TXs, num RXs, num clusters, num rays, 2, 1]
         f_rx_pol1 = self._l2g_response(f_rx_pol1_prime, rx_orientations,
             zoa, aoa)
+        
 
         if self._tx_array.polarization == 'dual':
             f_tx_pol2_prime = tf.stack(self._tx_array.ant_pol2.field(
@@ -733,7 +749,9 @@ class ChannelCoefficientsGenerator:
             f_rx_pol2 = self._l2g_response(f_rx_pol2_prime, rx_orientations,
                 zoa, aoa)
 
+
         # Fill the full channel matrix with field responses
+        # [batch size, num TXs, num RXs, num clusters, num rays, 2, 1]
         pol1_tx = tf.matmul(h_phase, tf.complex(f_tx_pol1,
             tf.constant(0., self._dtype.real_dtype)))
         if self._tx_array.polarization == 'dual':
@@ -743,6 +761,8 @@ class ChannelCoefficientsGenerator:
         num_ant_tx = self._tx_array.num_ant
         if self._tx_array.polarization == 'single':
             # Each BS antenna gets the polarization 1 response
+            # It consists of num_ant_tx identical copies of pol1_tx stacked along the first dimension
+            # [num_ant_tx, batch size, num TXs, num RXs, num clusters, num rays, 2, 1]
             f_tx_array = tf.tile(tf.expand_dims(pol1_tx, 0),
                 tf.concat([[num_ant_tx], tf.ones([tf.rank(pol1_tx)], tf.int32)],
                 axis=0))
@@ -769,22 +789,36 @@ class ChannelCoefficientsGenerator:
         else:
             # Assign polarization response according to polarization to each
             # antenna
+
+            # [2, batch size, num TXs, num RXs, num clusters, num rays, 2, 1]
             pol_rx = tf.stack([f_rx_pol1, f_rx_pol2], 0) # pylint: disable=possibly-used-before-assignment
             ant_ind_pol2 = self._rx_array.ant_ind_pol2
             num_ant_pol2 = ant_ind_pol2.shape[0]
             # O = Pol 1, 1 = Pol 2, we only scatter the indices for Pol 1,
             # the other elements are already 0
+            # [num_ant_rx] e.g. [0 0 1 1], 4 rx elements, 2 pol.s
             gather_ind = tf.scatter_nd(tf.reshape(ant_ind_pol2, [-1,1]),
                 tf.ones([num_ant_pol2], tf.int32), [num_ant_rx])
+            # [num_ant_rx, batch size, num TXs, num RXs, num clusters, num rays, 2, 1]
+            # copy pol.s for all elements
             f_rx_array = tf.complex(tf.gather(pol_rx, gather_ind, axis=0),
                             tf.constant(0., self._dtype.real_dtype))
 
+            print(f"f_rx_array:{f_rx_array[:,0,0,0,0,0,:,0]}")
+
         # Compute the scalar product between the field vectors through
         # reduce_sum and transpose to put antenna dimensions last
+
+        # [num_ant_rx, num_ant_tx, batch size, num TXs, num RXs, num clusters, num rays, 2, 1]
+        # reduce to
+        # [num_ant_rx, num_ant_tx, batch size, num TXs, num RXs, num clusters, num rays]
         h_field = tf.reduce_sum(tf.expand_dims(f_rx_array, 1)*tf.expand_dims(
             f_tx_array, 0), [-2,-1])
+        
+        # [batch size, num_tx, num rx, num clusters, num rays, num rx antennas, num tx antennas]
         h_field = tf.transpose(h_field, tf.roll(tf.range(tf.rank(h_field)),
             -2, 0))
+
 
         return h_field
 
@@ -819,14 +853,22 @@ class ChannelCoefficientsGenerator:
         # [batch size, num_tx, num rx, num clusters, num rays, num rx antennas, num tx antennas]
         h_field = self._step_11_field_matrix(topology, rays.aoa, rays.aod,
                                                     rays.zoa, rays.zod, h_phase)
-        
+        print(f"[step11nls] h_field [batch size, num_tx, num rx, num clusters, num rays, num rx antennas, num tx antennas]:{tf.shape(h_field)}")
+
+        print(f"h_field0:{h_field[0,0,0,0,0,:,0]}")
+        print(f"h_field1:{h_field[0,0,0,0,0,:,1]}")
+        print(f"h_field0:{tf.math.angle(h_field[0,0,0,0,0,:,0])}")
+        print(f"h_field1:{tf.math.angle(h_field[0,0,0,0,0,:,1])}")
         # [batch size, num_tx, num rx, num clusters, num rays, num rx antennas, num tx antennas]        
         h_array = self._step_11_array_offsets(topology, rays.aoa, rays.aod,
                                                             rays.zoa, rays.zod)
+        print(f"[step11nls] h_array [batch size, num_tx, num rx, num clusters, num rays, num rx antennas, num tx antennas]:{tf.shape(h_array)}")
         
         # [batch size, num_tx, num rx, num clusters, num rays, num time steps]
         h_doppler = self._step_11_doppler_matrix(topology, rays.aoa, rays.zoa,
                                                                             t)
+        print(f"[step11nls] h_doppler [batch size, num_tx, num rx, num clusters, num rays, num time steps]:{tf.shape(h_doppler)}")
+
         h_full = tf.expand_dims(h_field*h_array, -1) * tf.expand_dims(
             tf.expand_dims(h_doppler, -2), -2)
 
