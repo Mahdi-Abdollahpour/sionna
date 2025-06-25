@@ -879,6 +879,8 @@ class ChannelCoefficientsGenerator:
             [tf.rank(h_full)-tf.rank(power_scaling)], tf.int32)], 0)
         h_full *= tf.reshape(power_scaling, shape)
 
+        print(f"rays.powers:{tf.shape(rays.powers)}")
+
         return h_full
 
     def _step_11_reduce_nlos(self, h_full, rays, c_ds):
@@ -899,10 +901,10 @@ class ChannelCoefficientsGenerator:
 
         Output
         -------
-        h_nlos : [batch size, num_tx, num rx, num clusters, num rx antennas, num tx antennas, num time steps], tf.complex
+        h_nlos : [batch size, num_tx, num rx, num clusters (num_paths:it includes subclusters), num rx antennas, num tx antennas, num time steps], tf.complex
             Paths NLoS coefficients
 
-        delays_nlos : [batch size, num_tx, num rx, num clusters], tf.float
+        delays_nlos : [batch size, num_tx, num rx, num clusters((num_paths:it includes subclusters))], tf.float
             Paths NLoS delays
         """
 
@@ -967,6 +969,8 @@ class ChannelCoefficientsGenerator:
 
         # # Order the channel clusters according to the delay, too
         h_nlos = tf.gather(h_nlos, delays_ind, batch_dims=3, axis=3)
+
+        print(f"[_step_11_reduce_nlos] h_nlos:{tf.shape(h_nlos)}, delays_nlos:{tf.shape(delays_nlos)}")
 
         return h_nlos, delays_nlos
 
@@ -1078,8 +1082,14 @@ class ChannelCoefficientsGenerator:
         h_los = tf.concat([h_los_cl, h_los_nlos_comp[:,:,:,1:,...]], axis=3)
 
         #### LoS or NLoS CIR according to link configuration
+        # [batch size, num TXs, 1, 1, ...] True/False
         los_indicator = tf.reshape(topology.los,
             tf.concat([tf.shape(topology.los), [1,1,1,1]], axis=0))
-        h = tf.where(los_indicator, h_los, h_nlos)
 
+        h = tf.where(los_indicator, h_los, h_nlos)
+        print(f"[step11] h:{tf.shape(h)}, delays_nlos:{tf.shape(delays_nlos)}")
+
+
+        # h[batch_size, num_tx, num_rx, num_paths, num_rx_ant, num_tx_ant, num_time_samples]
+        # delays_nlos[batch_size, num_tx, num_rx, num_paths]
         return h, delays_nlos

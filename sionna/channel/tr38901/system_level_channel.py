@@ -232,6 +232,8 @@ class SystemLevelChannel(ChannelModel):
             sf = lsp.sf
 
         # pylint: disable=unbalanced-tuple-unpacking
+        # h[batch size, num_tx, num_rx, num_paths, num_rx_ant, num_tx_ant, num_time_samples]
+
         h, delays = self._cir_sampler(num_time_samples, sampling_frequency,
                                       k_factor, rays, topology, c_ds)
         
