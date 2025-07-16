@@ -2,6 +2,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
+# This file Modified to generate batches
+# of channel delay/coefficients with randomized number of [clusters & rays]
+# Mahdi Abdollahpour
+# mahdi.abdollahpour@unibo.it
+# 2025
+
 """Base class for implementing system level channel models from 3GPP TR38.901
 specification"""
 
@@ -50,11 +56,13 @@ class SystemLevelChannel(ChannelModel):
             Path delays [s]
     """
 
-    def __init__(self, scenario, always_generate_lsp=False):
+    def __init__(self, scenario, always_generate_lsp=False, random_num_clusters=False, random_num_rays=False):
+
+        self._random_num_clusters = random_num_clusters
 
         self._scenario = scenario
         self._lsp_sampler = LSPGenerator(scenario)
-        self._ray_sampler = RaysGenerator(scenario)
+        self._ray_sampler = RaysGenerator(scenario, random_num_clusters, random_num_rays)
         self._set_topology_called = False
 
         if scenario.direction == "uplink":
@@ -155,11 +163,11 @@ class SystemLevelChannel(ChannelModel):
             # batch_size = num_time_samples
             num_time_samples = sampling_frequency
             sampling_frequency = foo
-#             if ( (batch_size is not None)
-#                     and tf.not_equal(batch_size,self._scenario.batch_size) ):
-#                 tf.print("Warning: The value of `batch_size` specified when \
-# calling the channel model is different from the one previously configured for \
-# the topology. The value specified when calling is ignored.")
+        #             if ( (batch_size is not None)
+        #                     and tf.not_equal(batch_size,self._scenario.batch_size) ):
+        #                 tf.print("Warning: The value of `batch_size` specified when \
+        # calling the channel model is different from the one previously configured for \
+        # the topology. The value specified when calling is ignored.")
 
         # Sample LSPs if required
         if self._always_generate_lsp:
@@ -227,17 +235,24 @@ class SystemLevelChannel(ChannelModel):
             # We do not transpose the others to reduce complexity
             k_factor = tf.transpose(lsp.k_factor, [0, 2, 1])
             sf = tf.transpose(lsp.sf, [0, 2, 1])
+
+
+            # transpose rays mask
+            # [batch_size, num_of_BSs, num_of_UTs, max_number_of_clusters, num_rays]
+            # To [batch_size, num_of_UTs, num_of_BSs, max_number_of_clusters, num_rays]
+            rays.ray_mask = tf.transpose(rays.ray_mask, [0, 2, 1, 3, 4])
+
+
         else:
             k_factor = lsp.k_factor
             sf = lsp.sf
 
         # pylint: disable=unbalanced-tuple-unpacking
         # h[batch size, num_tx, num_rx, num_paths, num_rx_ant, num_tx_ant, num_time_samples]
-
+        # delays_nlos[batch_size, num_tx, num_rx, num_paths]
         h, delays = self._cir_sampler(num_time_samples, sampling_frequency,
                                       k_factor, rays, topology, c_ds)
-        
-        tf.print(f"[SystemLevelChannel-call] h{tf.shape(h)}")
+
 
         # Step 12
         h = self._step_12(h, sf)
@@ -389,10 +404,13 @@ class SystemLevelChannel(ChannelModel):
         if not self._scenario.shadow_fading_enabled:
             sf = tf.ones_like(sf)
 
+        # [batch size, num_tx, num_rx]
         gain = tf.math.pow(tf.constant(10., self._scenario.dtype.real_dtype),
             -(pl_db)/20.)*tf.sqrt(sf)
+        # [batch size, num_tx, num_rx, 1, 1, ...]
         gain = tf.reshape(gain, tf.concat([tf.shape(gain),
             tf.ones([tf.rank(h)-tf.rank(gain)], tf.int32)],0))
+
         h *= tf.complex(gain, tf.constant(0., self._scenario.dtype.real_dtype))
 
         return h

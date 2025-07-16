@@ -2,6 +2,14 @@
 # SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
+
+# This file Modified to generate batches
+# of channel delay/coefficients with randomized number of clusters
+# Mahdi Abdollahpour
+# mahdi.abdollahpour@unibo.it
+# 2025
+
+
 """
 Class for sampling rays following 3GPP TR38.901 specifications and giving a
 channel simulation scenario and LSPs.
@@ -43,7 +51,7 @@ class Rays:
         Coss-polarization power ratios.
     """
 
-    def __init__(self, delays, powers, aoa, aod, zoa, zod, xpr):
+    def __init__(self, delays, powers, aoa, aod, zoa, zod, xpr, ray_mask):
         self.delays = delays
         self.powers = powers
         self.aoa = aoa
@@ -52,6 +60,7 @@ class Rays:
         self.zod = zod
         self.xpr = xpr
 
+        self.ray_mask = ray_mask # 0:enabled ray   1:removed ray
 
 class RaysGenerator:
     """
@@ -84,9 +93,11 @@ class RaysGenerator:
         Rays samples
     """
 
-    def __init__(self, scenario):
+    def __init__(self, scenario, random_num_clusters=False, random_num_rays=False):
         # Scenario
         self._scenario = scenario
+        self._random_num_clusters = random_num_clusters
+        self._random_num_rays     = random_num_rays
 
         # For AoA, AoD, ZoA, and ZoD, offset to add to cluster angles to get ray
         # angles. This is hardcoded from table 7.5-3 for 3GPP 38.901
@@ -102,6 +113,7 @@ class RaysGenerator:
                                          1.5195, -1.5195,
                                          2.1551, -2.1551],
                                          self._scenario.dtype.real_dtype)
+        # self._ray_mask = None
 
     #########################################
     # Public methods and properties
@@ -150,7 +162,8 @@ class RaysGenerator:
                     aod    = aod,
                     zoa    = zoa,
                     zod    = zod,
-                    xpr    = xpr)
+                    xpr    = xpr,
+                    ray_mask = self._ray_mask)
 
         return rays
 
@@ -168,10 +181,76 @@ class RaysGenerator:
         None
         """
         self._compute_clusters_mask()
+        self._compute_rays_mask()
 
     ########################################
     # Internal utility methods
     ########################################
+    
+    def _compute_rays_mask(self):
+        
+        # Generates random mask for rays, to have random number of rays per cluster 
+        # uses a triangular distribution to let more rays be more probable
+        # ray_mask: 
+        # [batch_size, num_of_BSs, num_of_UTs, max_number_of_clusters, num_rays]
+        # 0: ray exists 1: ray removed
+        # get params
+        scenario = self._scenario
+        num_clusters_los = scenario.num_clusters_los
+        num_clusters_nlos = scenario.num_clusters_nlos
+        num_clusters_o2i = scenario.num_clusters_indoor
+        num_clusters_max = tf.reduce_max([num_clusters_los, num_clusters_nlos,
+            num_clusters_o2i])
+
+        # Initialize a mask with uniform noise 
+        #    shape [batch_size, num_bs, num_ut, num_clusters_max, num_rays]
+        rand = tf.random.uniform([scenario.batch_size, scenario.num_bs, 
+            scenario.num_ut, num_clusters_max, scenario.rays_per_cluster], minval=0., maxval=1.,
+            dtype=self._scenario.dtype.real_dtype)
+
+        # random threshold 
+        #    shape [batch_size, num_bs, num_ut, num_clusters_max, 1]
+        thresh = tf.random.uniform([scenario.batch_size, scenario.num_bs, scenario.num_ut, num_clusters_max, 1],
+            minval=0., maxval=1., dtype=self._scenario.dtype.real_dtype)
+
+        # make 0's more probable (triangular distribution)
+        thresh = tf.math.sqrt(thresh)
+        thresh = tf.math.sqrt(thresh)
+        # thresh = tf.math.sqrt(thresh)
+        # thresh = tf.math.sqrt(thresh)
+        # thresh = tf.math.sqrt(thresh)
+
+
+        # random‐mask: 1 if random draw > threshold, else 0
+        #    shape [batch_size, num_bs, num_ut, num_clusters_max, num_rays]
+        rand = tf.cast(rand > thresh, self._scenario.dtype.real_dtype)
+
+        # retain cluster 0:n_keep for all
+        n_keep = 2
+        ray_one = tf.concat([tf.zeros([n_keep],
+        self._scenario.dtype.real_dtype),
+        tf.ones([scenario.rays_per_cluster-n_keep],
+        self._scenario.dtype.real_dtype)], axis=0)
+
+        ray_one = tf.reshape(ray_one, [1, 1, 1, 1, scenario.rays_per_cluster])
+
+        rand = tf.cast( tf.logical_and(ray_one>0,rand>0),
+                            self._scenario.dtype.real_dtype)
+        
+        # cast
+        # rand = tf.cast( rand,
+        #         self._scenario.dtype.real_dtype)
+        # print(f"mask1:{rand[0,0,0,0,:]}")
+
+
+        # disable the mask if required (default)
+        if not self._random_num_rays:
+            rand = tf.zeros(shape=[scenario.batch_size, scenario.num_bs, 
+            scenario.num_ut, num_clusters_max, scenario.rays_per_cluster],
+            dtype=self._scenario.dtype.real_dtype)
+
+        # Save the mask
+        self._ray_mask = rand
 
     def _compute_clusters_mask(self):
         """
@@ -195,7 +274,8 @@ class RaysGenerator:
         num_clusters_max = tf.reduce_max([num_clusters_los, num_clusters_nlos,
             num_clusters_o2i])
 
-
+        # print(f"num_clusters_los:{12}, num_clusters_nlos:{19}, num_clusters_o2i:{12}, num_clusters_max:{19}")
+        
         # Initialize an empty mask
         mask = tf.zeros(shape=[scenario.batch_size, scenario.num_bs,
             scenario.num_ut, num_clusters_max],
@@ -207,10 +287,18 @@ class RaysGenerator:
                                  tf.ones([num_clusters_max-num_clusters_o2i],
                                     self._scenario.dtype.real_dtype)), axis=0)
         mask_indoor = tf.reshape(mask_indoor, [1, 1, 1, num_clusters_max])
+        
+        # Indoor state of UTs. `True` is indoor, `False` otherwise.
+        # [batch size, number of UTs]
+        # to [batch size, 1, number of UTs]
         indoor = tf.expand_dims(scenario.indoor, axis=1) # Broadcasting with BS
+
+        # False:0
         o2i_slice_mask = tf.cast(indoor, self._scenario.dtype.real_dtype)
         o2i_slice_mask = tf.expand_dims(o2i_slice_mask, axis=3)
-        mask = mask + o2i_slice_mask*mask_indoor
+
+        # If indoor is all false --> all zeros per all UTs & clusters
+        mask = mask + o2i_slice_mask*mask_indoor 
 
         # LoS
         mask_los = tf.concat([tf.zeros([num_clusters_los],
@@ -218,6 +306,9 @@ class RaysGenerator:
             tf.ones([num_clusters_max-num_clusters_los],
             self._scenario.dtype.real_dtype)], axis=0)
         mask_los = tf.reshape(mask_los, [1, 1, 1, num_clusters_max])
+
+        # LoS state of BS-UT links. `True` if LoS, `False` otherwise.
+        # [batch size, number of BSs, number of UTs]
         los_slice_mask = scenario.los
         los_slice_mask = tf.cast(los_slice_mask,
                                     self._scenario.dtype.real_dtype)
@@ -230,12 +321,56 @@ class RaysGenerator:
             tf.ones([num_clusters_max-num_clusters_nlos],
             self._scenario.dtype.real_dtype)], axis=0)
         mask_nlos = tf.reshape(mask_nlos, [1, 1, 1, num_clusters_max])
+
+        # [batch size, number of BSs, number of UTs]
         nlos_slice_mask = tf.logical_and(tf.logical_not(scenario.los),
             tf.logical_not(indoor))
+
         nlos_slice_mask = tf.cast(nlos_slice_mask,
                                     self._scenario.dtype.real_dtype)
         nlos_slice_mask = tf.expand_dims(nlos_slice_mask, axis=3)
         mask = mask + nlos_slice_mask*mask_nlos
+
+        # if Random Cluster Numbers enabled
+        if self._random_num_clusters:
+
+            # uniform noise per (batch,UT,cluster)
+            #    shape [batch_size, num_bs, num_ut, num_clusters_max]
+            rand = tf.random.uniform([scenario.batch_size, scenario.num_bs, 
+             scenario.num_ut, num_clusters_max], minval=0., maxval=1.,
+              dtype=self._scenario.dtype.real_dtype)
+
+            # random threshold per (batch,UT)
+            #    shape [batch_size, num_bs, num_ut]
+            thresh = tf.random.uniform([scenario.batch_size, scenario.num_bs, scenario.num_ut, 1],
+             minval=0., maxval=1., dtype=self._scenario.dtype.real_dtype)
+
+            # make 0's more probable (triangular distribution)
+            thresh = tf.math.sqrt(thresh)
+            thresh = tf.math.sqrt(thresh)
+
+            # random‐mask: 1 if random draw > threshold, else 0
+            #    shape [batch_size, num_bs, num_ut, num_clusters_max]
+            rand_mask = tf.cast(rand > thresh, self._scenario.dtype.real_dtype)
+
+            # retain cluster 0:n_keep for all
+            n_keep = 2
+            cluster_one = tf.concat([tf.zeros([n_keep],
+            self._scenario.dtype.real_dtype),
+            tf.ones([num_clusters_max-n_keep],
+            self._scenario.dtype.real_dtype)], axis=0)
+
+            cluster_one = tf.reshape(cluster_one, [1, 1, 1, num_clusters_max])
+            rand_mask = tf.cast( tf.logical_and(cluster_one>0,rand_mask>0),
+                                self._scenario.dtype.real_dtype)
+            # print(f"rand_macl:{rand_mask[0,0,0,:]}")
+            
+            # print(f"mask1:{mask[0,0,0,:]}")
+            # add into overall mask
+            mask = tf.cast( tf.logical_or(rand_mask>0,mask>0),
+                    self._scenario.dtype.real_dtype)
+            # print(f"mask2:{mask[0,0,0,:]}")
+
 
         # Save the mask
         self._cluster_mask = mask

@@ -2,6 +2,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
+
+# This file Modified to generate batches
+# of channel delay/coefficients with randomized number of rays
+# Mahdi Abdollahpour
+# mahdi.abdollahpour@unibo.it
+# 2025
+
 """
 Class for sampling channel impulse responses following 3GPP TR38.901
 specifications and giving LSPs and rays.
@@ -185,7 +192,7 @@ class ChannelCoefficientsGenerator:
 
         # Step 11
         h, delays = self._step_11(phi, topology, k_factor, rays, sample_times,
-                                                                        c_ds)
+                                                                c_ds)
 
         # Return additional information if requested
         if debug:
@@ -804,7 +811,6 @@ class ChannelCoefficientsGenerator:
             f_rx_array = tf.complex(tf.gather(pol_rx, gather_ind, axis=0),
                             tf.constant(0., self._dtype.real_dtype))
 
-            print(f"f_rx_array:{f_rx_array[:,0,0,0,0,0,:,0]}")
 
         # Compute the scalar product between the field vectors through
         # reduce_sum and transpose to put antenna dimensions last
@@ -848,39 +854,71 @@ class ChannelCoefficientsGenerator:
         """
         # [batch size, num TXs, num RXs, num clusters, num rays, 2, 2]
         h_phase = self._step_11_phase_matrix(phi, rays)
-        print(f"[step11nls] h_phase [batch size, num TXs, num RXs, num clusters, num rays, 2, 2]:{tf.shape(h_phase)}")
 
         # [batch size, num_tx, num rx, num clusters, num rays, num rx antennas, num tx antennas]
         h_field = self._step_11_field_matrix(topology, rays.aoa, rays.aod,
                                                     rays.zoa, rays.zod, h_phase)
-        print(f"[step11nls] h_field [batch size, num_tx, num rx, num clusters, num rays, num rx antennas, num tx antennas]:{tf.shape(h_field)}")
 
-        print(f"h_field0:{h_field[0,0,0,0,0,:,0]}")
-        print(f"h_field1:{h_field[0,0,0,0,0,:,1]}")
-        print(f"h_field0:{tf.math.angle(h_field[0,0,0,0,0,:,0])}")
-        print(f"h_field1:{tf.math.angle(h_field[0,0,0,0,0,:,1])}")
+        # print(f"h_field0:{h_field[0,0,0,0,0,:,0]}")
+        # print(f"h_field1:{h_field[0,0,0,0,0,:,1]}")
+        # print(f"h_field0:{tf.math.angle(h_field[0,0,0,0,0,:,0])}")
+        # print(f"h_field1:{tf.math.angle(h_field[0,0,0,0,0,:,1])}")
+
         # [batch size, num_tx, num rx, num clusters, num rays, num rx antennas, num tx antennas]        
         h_array = self._step_11_array_offsets(topology, rays.aoa, rays.aod,
                                                             rays.zoa, rays.zod)
-        print(f"[step11nls] h_array [batch size, num_tx, num rx, num clusters, num rays, num rx antennas, num tx antennas]:{tf.shape(h_array)}")
         
         # [batch size, num_tx, num rx, num clusters, num rays, num time steps]
         h_doppler = self._step_11_doppler_matrix(topology, rays.aoa, rays.zoa,
                                                                             t)
-        print(f"[step11nls] h_doppler [batch size, num_tx, num rx, num clusters, num rays, num time steps]:{tf.shape(h_doppler)}")
 
+        # [batch_size, num_tx, num_rx, num_clusters(19), num_rays(20), num_rx_antennas, num_tx_antennas, num_time_steps]
         h_full = tf.expand_dims(h_field*h_array, -1) * tf.expand_dims(
             tf.expand_dims(h_doppler, -2), -2)
 
-        power_scaling = tf.complex(tf.sqrt(rays.powers/
-            tf.cast(tf.shape(h_full)[4], self._dtype.real_dtype)),
-                            tf.constant(0., self._dtype.real_dtype))
+        # adjust the powers accordingto the ray mask
+        # ray_mask:[batch_size, num_of_UTs, num_of_BSs, max_number_of_clusters, num_rays]
+        # 1: enabled      0:disabled ray
+        ray_mask = tf.cast( rays.ray_mask<1, self._dtype.real_dtype)
+
+        # [batch_size, num_of_UTs, num_of_BSs, max_number_of_clusters]
+        effective_num_rays = tf.reduce_sum(ray_mask,axis=-1)
+        print(f"effective_num_rays:{tf.shape(effective_num_rays)}, {effective_num_rays[0,0,0,:]}")
+        
+        # rays.powers: in uplink: [batch_size, num_of_UTs, num_of_BSs, max_number_of_clusters(in umi:19)]
+
+        # [batch_size, num_of_UTs, num_of_BSs, max_number_of_clusters]
+        # power_scaling = tf.complex(tf.sqrt(rays.powers/
+        #     tf.cast(tf.shape(h_full)[4], self._dtype.real_dtype)),
+        #                     tf.constant(0., self._dtype.real_dtype))
+
+        # [batch_size, num_of_UTs, num_of_BSs, max_number_of_clusters]
+        power_scaling = tf.complex(   tf.sqrt(rays.powers/effective_num_rays),
+                            tf.constant(0., self._dtype.real_dtype)   )
+
+        # [batch_size, num_of_UTs, num_of_BSs, max_number_of_clusters, 1]
+        power_scaling = tf.expand_dims(power_scaling, axis=-1)
+
+        # account for disabled rays
+        # ray_mask:      [batch_size, num_of_UTs, num_of_BSs, max_number_of_clusters, num_rays]
+        # power_scaling: [batch_size, num_of_UTs, num_of_BSs, max_number_of_clusters, 1]
+        # To             [batch_size, num_of_UTs, num_of_BSs, max_number_of_clusters, num_rays]
+        power_scaling *= tf.complex( ray_mask, tf.constant(0., self._dtype.real_dtype)  )
+
+
+
+        print(f"power_scaling:{power_scaling[0,0,0,0,:]}")
+        print(f"power_scaling:{tf.shape(power_scaling)}")
+
+        # [ batch_size, num_of_UTs, num_of_BSs, max_number_of_clusters, num_rays + 1, 1, 1, 1] 
+        # --> broadcastable to h_full
         shape = tf.concat([tf.shape(power_scaling), tf.ones(
             [tf.rank(h_full)-tf.rank(power_scaling)], tf.int32)], 0)
+
+        # [batch_size, num_tx, num_rx, num_clusters(19), num_rays(20), num_rx_antennas, num_tx_antennas, num_time_steps]
         h_full *= tf.reshape(power_scaling, shape)
-
-        print(f"rays.powers:{tf.shape(rays.powers)}")
-
+     
+        # print(f"powers:{rays.powers[0,0,0,:]}")
         return h_full
 
     def _step_11_reduce_nlos(self, h_full, rays, c_ds):
@@ -923,7 +961,7 @@ class ChannelCoefficientsGenerator:
 
             # Split into delays for strong and weak clusters
             delays_strong = delays_sorted[...,:2]
-            delays_weak = delays_sorted[...,2:]
+            delays_weak   = delays_sorted[...,2:]
 
             # Compute delays for sub-clusters
             offsets = tf.reshape(self._sub_cl_delay_offsets,
@@ -970,7 +1008,6 @@ class ChannelCoefficientsGenerator:
         # # Order the channel clusters according to the delay, too
         h_nlos = tf.gather(h_nlos, delays_ind, batch_dims=3, axis=3)
 
-        print(f"[_step_11_reduce_nlos] h_nlos:{tf.shape(h_nlos)}, delays_nlos:{tf.shape(delays_nlos)}")
 
         return h_nlos, delays_nlos
 
@@ -1087,7 +1124,6 @@ class ChannelCoefficientsGenerator:
             tf.concat([tf.shape(topology.los), [1,1,1,1]], axis=0))
 
         h = tf.where(los_indicator, h_los, h_nlos)
-        print(f"[step11] h:{tf.shape(h)}, delays_nlos:{tf.shape(delays_nlos)}")
 
 
         # h[batch_size, num_tx, num_rx, num_paths, num_rx_ant, num_tx_ant, num_time_samples]
