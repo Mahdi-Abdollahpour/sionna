@@ -4,7 +4,8 @@
 #
 
 # This file Modified to generate batches
-# of channel delay/coefficients with randomized number of rays
+# of channel delay/coefficients with randomized number of rays.
+# Additionaly to output channel parametric data required for deep_echo training. 
 # Mahdi Abdollahpour
 # mahdi.abdollahpour@unibo.it
 # 2025
@@ -19,6 +20,7 @@ from tensorflow import sin, cos, acos
 
 from sionna import PI, SPEED_OF_LIGHT
 import sionna
+ 
 
 class Topology:
     # pylint: disable=line-too-long
@@ -181,6 +183,8 @@ class ChannelCoefficientsGenerator:
         self._sub_cl_delay_offsets = tf.constant([0, 1.28, 2.56],
                                                     dtype.real_dtype)
 
+
+
     def __call__(self, num_time_samples, sampling_frequency, k_factor, rays,
                  topology, c_ds=None, debug=False):
         # Sample times
@@ -188,7 +192,9 @@ class ChannelCoefficientsGenerator:
                 dtype=self._dtype.real_dtype)/sampling_frequency)
 
         # Step 10
+        # [batch_size, num_tx, num_rx, num_clusters, num_rays, 4]
         phi = self._step_10(tf.shape(rays.aoa))
+
 
         # Step 11
         h, delays = self._step_11(phi, topology, k_factor, rays, sample_times,
@@ -441,7 +447,7 @@ class ChannelCoefficientsGenerator:
         forming the receive antenna panel
 
         Input
-        -----
+        ----- 
         topology : Topology
             Topology of the network
 
@@ -854,17 +860,13 @@ class ChannelCoefficientsGenerator:
         """
         # [batch size, num TXs, num RXs, num clusters, num rays, 2, 2]
         h_phase = self._step_11_phase_matrix(phi, rays)
-
+        
         # [batch size, num_tx, num rx, num clusters, num rays, num rx antennas, num tx antennas]
         h_field = self._step_11_field_matrix(topology, rays.aoa, rays.aod,
                                                     rays.zoa, rays.zod, h_phase)
 
-        # print(f"h_field0:{h_field[0,0,0,0,0,:,0]}")
-        # print(f"h_field1:{h_field[0,0,0,0,0,:,1]}")
-        # print(f"h_field0:{tf.math.angle(h_field[0,0,0,0,0,:,0])}")
-        # print(f"h_field1:{tf.math.angle(h_field[0,0,0,0,0,:,1])}")
 
-        # [batch size, num_tx, num rx, num clusters, num rays, num rx antennas, num tx antennas]        
+        # [batch_size, num_tx, num_rx, num_clusters, num_rays, num_rx_antennas, num_tx_antennas]        
         h_array = self._step_11_array_offsets(topology, rays.aoa, rays.aod,
                                                             rays.zoa, rays.zod)
         
@@ -883,7 +885,7 @@ class ChannelCoefficientsGenerator:
 
         # [batch_size, num_of_UTs, num_of_BSs, max_number_of_clusters]
         effective_num_rays = tf.reduce_sum(ray_mask,axis=-1)
-        print(f"effective_num_rays:{tf.shape(effective_num_rays)}, {effective_num_rays[0,0,0,:]}")
+        # print(f"effective_num_rays:{tf.shape(effective_num_rays)}, {effective_num_rays[0,0,0,:]}")
         
         # rays.powers: in uplink: [batch_size, num_of_UTs, num_of_BSs, max_number_of_clusters(in umi:19)]
 
@@ -891,7 +893,8 @@ class ChannelCoefficientsGenerator:
         # power_scaling = tf.complex(tf.sqrt(rays.powers/
         #     tf.cast(tf.shape(h_full)[4], self._dtype.real_dtype)),
         #                     tf.constant(0., self._dtype.real_dtype))
-
+        
+        # power scaling accounting for random number of rays(ray_mask)
         # [batch_size, num_of_UTs, num_of_BSs, max_number_of_clusters]
         power_scaling = tf.complex(   tf.sqrt(rays.powers/effective_num_rays),
                             tf.constant(0., self._dtype.real_dtype)   )
@@ -907,8 +910,8 @@ class ChannelCoefficientsGenerator:
 
 
 
-        print(f"power_scaling:{power_scaling[0,0,0,0,:]}")
-        print(f"power_scaling:{tf.shape(power_scaling)}")
+        # print(f"power_scaling:{power_scaling[0,0,0,0,:]}")
+        # print(f"power_scaling:{tf.shape(power_scaling)}")
 
         # [ batch_size, num_of_UTs, num_of_BSs, max_number_of_clusters, num_rays + 1, 1, 1, 1] 
         # --> broadcastable to h_full
@@ -917,8 +920,8 @@ class ChannelCoefficientsGenerator:
 
         # [batch_size, num_tx, num_rx, num_clusters(19), num_rays(20), num_rx_antennas, num_tx_antennas, num_time_steps]
         h_full *= tf.reshape(power_scaling, shape)
-     
-        # print(f"powers:{rays.powers[0,0,0,:]}")
+
+
         return h_full
 
     def _step_11_reduce_nlos(self, h_full, rays, c_ds):
@@ -1129,3 +1132,8 @@ class ChannelCoefficientsGenerator:
         # h[batch_size, num_tx, num_rx, num_paths, num_rx_ant, num_tx_ant, num_time_samples]
         # delays_nlos[batch_size, num_tx, num_rx, num_paths]
         return h, delays_nlos
+
+        
+
+
+

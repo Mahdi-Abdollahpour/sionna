@@ -21,6 +21,10 @@ from . import Topology, ChannelCoefficientsGenerator
 from sionna.channel import ChannelModel
 from sionna.channel.utils import deg_2_rad
 
+
+from .channel_params import ChannelParams
+
+
 class SystemLevelChannel(ChannelModel):
     # pylint: disable=line-too-long
     r"""
@@ -71,6 +75,13 @@ class SystemLevelChannel(ChannelModel):
         else: # "downlink"
             tx_array = scenario.bs_array
             rx_array = scenario.ut_array
+
+        # Channel Params
+        self.channel_params = ChannelParams(   scenario.carrier_frequency,
+                                            tx_array, rx_array,
+                                            subclustering=True,
+                                            dtype = scenario.dtype)
+
         self._cir_sampler = ChannelCoefficientsGenerator(
                                             scenario.carrier_frequency,
                                             tx_array, rx_array,
@@ -79,6 +90,10 @@ class SystemLevelChannel(ChannelModel):
 
         # Are new LSPs needed
         self._always_generate_lsp = always_generate_lsp
+
+
+
+
 
     def set_topology(self, ut_loc=None, bs_loc=None, ut_orientations=None,
         bs_orientations=None, ut_velocities=None, in_state=None, los=None):
@@ -247,11 +262,31 @@ class SystemLevelChannel(ChannelModel):
             k_factor = lsp.k_factor
             sf = lsp.sf
 
+
+
+        
+
+        # # pylint: disable=unbalanced-tuple-unpacking
+        # # h[batch size, num_tx, num_rx, num_paths, num_rx_ant, num_tx_ant, num_time_samples]
+        # # delays_nlos[batch_size, num_tx, num_rx, num_paths]
+        # h, delays = self._cir_sampler(num_time_samples, sampling_frequency,
+        #                               k_factor, rays, topology, c_ds)
+
         # pylint: disable=unbalanced-tuple-unpacking
         # h[batch size, num_tx, num_rx, num_paths, num_rx_ant, num_tx_ant, num_time_samples]
         # delays_nlos[batch_size, num_tx, num_rx, num_paths]
-        h, delays = self._cir_sampler(num_time_samples, sampling_frequency,
-                                      k_factor, rays, topology, c_ds)
+        # debug mode needed to get phi
+        h, delays, phi, sample_times = self._cir_sampler(num_time_samples, sampling_frequency,
+                                      k_factor, rays, topology, c_ds, debug=True)
+
+        # store channel data
+        self.channel_params.rays = rays
+        self.channel_params.num_time_samples = num_time_samples
+        self.channel_params.sampling_frequency = sampling_frequency
+        self.channel_params.k_factor = k_factor
+        self.channel_params.topology = topology
+        self.channel_params.c_ds = c_ds
+        self.channel_params.phi = phi
 
 
         # Step 12

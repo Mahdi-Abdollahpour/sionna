@@ -22,3 +22,5 @@ from .uma import UMa
 from .umi import UMi
 from .tdl import TDL
 from .cdl import CDL
+
+from .channel_params import ChannelParams

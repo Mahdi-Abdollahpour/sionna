@@ -51,7 +51,7 @@ class Rays:
         Coss-polarization power ratios.
     """
 
-    def __init__(self, delays, powers, aoa, aod, zoa, zod, xpr, ray_mask):
+    def __init__(self, delays, powers, aoa, aod, zoa, zod, xpr, ray_mask, cluster_mask):
         self.delays = delays
         self.powers = powers
         self.aoa = aoa
@@ -61,7 +61,7 @@ class Rays:
         self.xpr = xpr
 
         self.ray_mask = ray_mask # 0:enabled ray   1:removed ray
-
+        self.cluster_mask = cluster_mask
 class RaysGenerator:
     """
     Sample rays according to a given channel scenario and large scale
@@ -163,7 +163,8 @@ class RaysGenerator:
                     zoa    = zoa,
                     zod    = zod,
                     xpr    = xpr,
-                    ray_mask = self._ray_mask)
+                    ray_mask = self._ray_mask,
+                    cluster_mask = self._cluster_mask)
 
         return rays
 
