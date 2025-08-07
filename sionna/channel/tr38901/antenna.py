@@ -289,6 +289,7 @@ class AntennaPanel:
         plt.title("Antenna Panel")
         plt.legend(["Polarization 1", "Polarization 2"], loc="upper right")
 
+        plt.savefig("antenna_array.png", dpi=300)
 
 class PanelArray:
     # pylint: disable=line-too-long
@@ -642,6 +643,9 @@ class PanelArray:
         plt.ylabel("z (m)")
         plt.title("Panel Array")
         plt.legend(["Polarization 1", "Polarization 2"], loc="upper right")
+        
+
+        plt.savefig("pannel_array.png", dpi=300)
 
     def show_element_radiation_pattern(self):
         """Show the radiation field of antenna elements forming the panel"""

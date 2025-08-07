@@ -166,6 +166,7 @@ class RaysGenerator:
                     ray_mask = self._ray_mask,
                     cluster_mask = self._cluster_mask)
 
+
         return rays
 
     def topology_updated_callback(self):

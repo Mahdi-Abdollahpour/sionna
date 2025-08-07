@@ -197,12 +197,12 @@ class ChannelCoefficientsGenerator:
 
 
         # Step 11
-        h, delays = self._step_11(phi, topology, k_factor, rays, sample_times,
+        h, delays, strongest_clusters, delays_ind = self._step_11(phi, topology, k_factor, rays, sample_times,
                                                                 c_ds)
 
         # Return additional information if requested
         if debug:
-            return h, delays, phi, sample_times
+            return h, delays, phi, sample_times, strongest_clusters, delays_ind
 
         return h, delays
 
@@ -581,6 +581,22 @@ class ChannelCoefficientsGenerator:
         # v_bar [batch size, num_tx, num rx, num clusters, num rays, 3, 1]
         r_hat_rx = self._unit_sphere_vector(zoa, aoa)
 
+        # #  [batch size, num_tx, num rx, num clusters, num rays, 1]
+        # dopp = 1/lambda_0*tf.reduce_sum(r_hat_rx*v_bar, -2)
+        # print(f"Dopp.Shift:{dopp[0,0,0,0,:,0]}")
+        # min_value = tf.reduce_min(dopp)
+        # max_value = tf.reduce_max(dopp)
+        # avg_value = tf.reduce_mean(tf.math.abs(dopp))
+        # print("Minimum value:", min_value.numpy())
+        # print("Maximum value:", max_value.numpy())
+        # print("Average value:", avg_value.numpy())
+
+
+
+
+
+
+
         # Compute phase shift due to doppler
         # [batch size, num_tx, num rx, num clusters, num rays, num time steps]
         exponent = 2*PI/lambda_0*tf.reduce_sum(r_hat_rx*v_bar, -2)*t
@@ -732,6 +748,8 @@ class ChannelCoefficientsGenerator:
         shape = tf.concat([[s[0],1],[s[1],1,1,s[-1]]], 0)
         rx_orientations = tf.reshape(rx_orientations, shape)
         zoa_prime, aoa_prime = self._gcs_to_lcs(rx_orientations, zoa, aoa)
+
+
 
         # Compute transmitted and received field strength for all antennas
         # in the LCS  and convert to GCS
@@ -1012,7 +1030,7 @@ class ChannelCoefficientsGenerator:
         h_nlos = tf.gather(h_nlos, delays_ind, batch_dims=3, axis=3)
 
 
-        return h_nlos, delays_nlos
+        return h_nlos, delays_nlos, strongest_clusters, delays_ind
 
     def _step_11_los(self, topology, t):
         # pylint: disable=line-too-long
@@ -1100,7 +1118,7 @@ class ChannelCoefficientsGenerator:
         """
 
         h_full = self._step_11_nlos(phi, topology, rays, t)
-        h_nlos, delays_nlos = self._step_11_reduce_nlos(h_full, rays, c_ds)
+        h_nlos, delays_nlos, strongest_clusters, delays_ind = self._step_11_reduce_nlos(h_full, rays, c_ds)
 
         ####  LoS scenario
 
@@ -1131,7 +1149,7 @@ class ChannelCoefficientsGenerator:
 
         # h[batch_size, num_tx, num_rx, num_paths, num_rx_ant, num_tx_ant, num_time_samples]
         # delays_nlos[batch_size, num_tx, num_rx, num_paths]
-        return h, delays_nlos
+        return h, delays_nlos, strongest_clusters, delays_ind
 
         
 

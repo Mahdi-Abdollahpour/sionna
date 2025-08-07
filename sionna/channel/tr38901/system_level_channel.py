@@ -76,6 +76,7 @@ class SystemLevelChannel(ChannelModel):
             tx_array = scenario.bs_array
             rx_array = scenario.ut_array
 
+
         # Channel Params
         self.channel_params = ChannelParams(   scenario.carrier_frequency,
                                             tx_array, rx_array,
@@ -184,6 +185,8 @@ class SystemLevelChannel(ChannelModel):
         # calling the channel model is different from the one previously configured for \
         # the topology. The value specified when calling is ignored.")
 
+        # tf.print(f"sampling_frequency:{sampling_frequency}, sampling_time:{1./sampling_frequency}")
+
         # Sample LSPs if required
         if self._always_generate_lsp:
             lsp = self._lsp_sampler()
@@ -217,6 +220,7 @@ class SystemLevelChannel(ChannelModel):
 
         # The channel coefficient needs the cluster delay spread parameter in ns
         c_ds = self._scenario.get_param("cDS")*1e-9
+
 
         # According to the link direction, we need to specify which from BS
         # and UT is uplink, and which is downlink.
@@ -276,8 +280,30 @@ class SystemLevelChannel(ChannelModel):
         # h[batch size, num_tx, num_rx, num_paths, num_rx_ant, num_tx_ant, num_time_samples]
         # delays_nlos[batch_size, num_tx, num_rx, num_paths]
         # debug mode needed to get phi
-        h, delays, phi, sample_times = self._cir_sampler(num_time_samples, sampling_frequency,
+        h, delays, phi, sample_times, strongest_clusters, delays_ind = self._cir_sampler(num_time_samples, sampling_frequency,
                                       k_factor, rays, topology, c_ds, debug=True)
+
+        # # --------------Plot tau,a------------------
+        # # Plot tau,a
+        # # Pick one sample
+        # h_sample = tf.squeeze(h[:, 0, 0,:,0,0,0])                  # [batch_size,num_paths]
+        # delays_ = tf.squeeze(delays[:, 0, 0,:])          # [batch_size,num_paths]
+
+        # plot_h_vs_delay(h_sample, delays_, num_samples=1, outfile='tau_a_umi.png', x_limit_ns=600)
+
+
+        # # Close to free memory
+
+        # print("Press any key or mouse button in the plot window to close it...")
+        # # plt.waitforbuttonpress()  # pauses until a key or mouse click
+        # input("Press Enter to continue...")
+        # # --------------------------------
+
+        # # --------------Plot Topology & Antenna Array------------------
+        # self._scenario.bs_array.show()
+        # # self.show_topology()
+        # input("Press Enter to continue...")
+        # # --------------------------------
 
         # store channel data
         self.channel_params.rays = rays
@@ -287,6 +313,10 @@ class SystemLevelChannel(ChannelModel):
         self.channel_params.topology = topology
         self.channel_params.c_ds = c_ds
         self.channel_params.phi = phi
+        self.channel_params.sf = sf
+        self.channel_params.strongest_clusters = strongest_clusters
+        self.channel_params.delays_ind = delays_ind
+        # --------- end store
 
 
         # Step 12
@@ -299,6 +329,7 @@ class SystemLevelChannel(ChannelModel):
         # Stop gadients to avoid useless backpropagation
         h = tf.stop_gradient(h)
         delays = tf.stop_gradient(delays)
+
 
         return h, delays
 
@@ -413,6 +444,8 @@ class SystemLevelChannel(ChannelModel):
         plt.legend()
         plt.tight_layout()
 
+        plt.savefig("topology.png", dpi=300)
+
     #####################################################
     # Internal utility methods
     #####################################################
@@ -429,8 +462,15 @@ class SystemLevelChannel(ChannelModel):
         sf : [batch size, num_tx, num_rx]
             Shadow fading
         """
+
+        self.channel_params.pathloss_enabled = self._scenario.pathloss_enabled
+        self.channel_params.shadow_fading_enabled = self._scenario.shadow_fading_enabled
+        self.channel_params.direction = self._scenario.direction
+
         if self._scenario.pathloss_enabled:
             pl_db = self._lsp_sampler.sample_pathloss()
+            # store 
+            self.channel_params.pl_db = pl_db
             if self._scenario.direction == 'uplink':
                 pl_db = tf.transpose(pl_db, [0,2,1])
         else:
@@ -449,3 +489,67 @@ class SystemLevelChannel(ChannelModel):
         h *= tf.complex(gain, tf.constant(0., self._scenario.dtype.real_dtype))
 
         return h
+
+
+
+
+
+from matplotlib import cm
+from matplotlib.ticker import MultipleLocator
+def plot_h_vs_delay(h_sample, delays_, num_samples=5, 
+                    outfile='h_vs_delay.png', x_limit_ns=700):
+    """
+    h_sample: tf.Tensor of shape [batch_size, num_paths]
+    delays_:  tf.Tensor of shape [batch_size, num_paths]
+    num_samples: how many batch‑rows to plot
+    outfile: filename for the saved PNG
+    x_limit_ns: max for x‑axis (nanoseconds)
+    """
+    # Convert to numpy
+    h_np      = tf.abs(h_sample).numpy()
+    delays_np = delays_.numpy()*1e9
+    
+    batch_size = h_np.shape[0]
+    N = min(num_samples, batch_size)
+    
+    # Choose N distinct colors from a colormap
+    colors = cm.get_cmap('tab10', N)
+    
+    plt.figure(figsize=(12, 4))
+    for i in range(N):
+        # stem returns (markerline, stemlines, baseline)
+
+        markerline, stemlines, baseline = plt.stem(
+            delays_np[i], h_np[i],
+            linefmt='-', markerfmt='o', basefmt='k-', 
+            label=f'Sample {i}', 
+        )
+        # override color
+        col = colors(i)
+        markerline.set_color(col)
+        markerline.set_markerfacecolor(col)
+        stemlines.set_color(col)
+        # leave baseline in black or grey
+    
+    plt.xlabel('Delay [ns]')
+    plt.ylabel(r'$|h|$')
+    plt.title(f'H magnitude vs. Delay (first {N} samples)')
+    plt.xlim(0, x_limit_ns)
+    plt.legend(loc='upper right')
+    ax = plt.gca()
+
+    ax.xaxis.set_major_locator(MultipleLocator(50))
+    ax.xaxis.set_minor_locator(MultipleLocator(10))
+    plt.minorticks_on()
+    ax.tick_params(axis='x', which='minor', length=4, bottom=True)
+
+
+
+    plt.minorticks_on()
+    plt.tight_layout()
+    
+    # Save to file instead of showing
+    plt.savefig(outfile, dpi=300)
+    plt.close()
+    print(f"Saved plot to {outfile}")
+
