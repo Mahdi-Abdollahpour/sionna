@@ -289,14 +289,14 @@ class SystemLevelChannel(ChannelModel):
         # h_sample = tf.squeeze(h[:, 0, 0,:,0,0,0])                  # [batch_size,num_paths]
         # delays_ = tf.squeeze(delays[:, 0, 0,:])          # [batch_size,num_paths]
 
-        # plot_h_vs_delay(h_sample, delays_, num_samples=1, outfile='tau_a_umi.png', x_limit_ns=600)
+        # plot_h_vs_delay(h_sample, delays_, num_samples=1, outfile='tau_a_umi.png', x_limit_ns=800)
 
 
         # # Close to free memory
 
         # print("Press any key or mouse button in the plot window to close it...")
         # # plt.waitforbuttonpress()  # pauses until a key or mouse click
-        # input("Press Enter to continue...")
+        # input("[sys.ch] Press Enter to continue...")
         # # --------------------------------
 
         # # --------------Plot Topology & Antenna Array------------------
