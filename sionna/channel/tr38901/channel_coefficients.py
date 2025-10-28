@@ -164,6 +164,7 @@ class ChannelCoefficientsGenerator:
     def __init__(self,  carrier_frequency,
                         tx_array, rx_array,
                         subclustering,
+                        mask_doa=False,
                         dtype=tf.complex64):
         assert dtype.is_complex, "dtype must be a complex datatype"
         self._dtype = dtype
@@ -183,7 +184,7 @@ class ChannelCoefficientsGenerator:
         self._sub_cl_delay_offsets = tf.constant([0, 1.28, 2.56],
                                                     dtype.real_dtype)
 
-
+        self._mask_doa = mask_doa
 
     def __call__(self, num_time_samples, sampling_frequency, k_factor, rays,
                  topology, c_ds=None, debug=False):
@@ -751,6 +752,8 @@ class ChannelCoefficientsGenerator:
 
 
 
+
+
         # Compute transmitted and received field strength for all antennas
         # in the LCS  and convert to GCS
         # [batch size, num TXs, num RXs, num clusters, num rays, 2]
@@ -834,6 +837,29 @@ class ChannelCoefficientsGenerator:
             # copy pol.s for all elements
             f_rx_array = tf.complex(tf.gather(pol_rx, gather_ind, axis=0),
                             tf.constant(0., self._dtype.real_dtype))
+
+
+        # ----------- remove out of range rays (if enabled) at the rx
+        # 
+        if self._mask_doa:
+            a_min=-PI/2 
+            a_max=PI/2
+            z_min=0
+            z_max=PI
+            # [batch size, num TXs, num RXs, num clusters, num rays] bool
+            mask_aoa = tf.logical_and(aoa_prime >= a_min, aoa_prime <= a_max)
+            mask_zoa = tf.logical_and(zoa_prime >= z_min, zoa_prime <= z_max)
+            mask     = tf.logical_and(mask_aoa, mask_zoa)
+            # mask = tf.complex(tf.constant(0., self._dtype.real_dtype),
+            #                     tf.cast(mask,dtype=self._dtype.real_dtype))
+            # [1, batch size, num TXs, num RXs, num clusters, num rays, 1, 1]
+            mask = tf.expand_dims(tf.expand_dims(tf.expand_dims(mask,0),6),6)
+            mask = tf.broadcast_to(mask, tf.shape(f_rx_array))
+
+            # Apply mask
+            # [num_ant_rx, batch size, num TXs, num RXs, num clusters, num rays, 2, 1]
+            f_rx_array = tf.where(mask, f_rx_array, tf.zeros_like(f_rx_array))
+        # -------------------------
 
 
         # Compute the scalar product between the field vectors through
@@ -920,6 +946,8 @@ class ChannelCoefficientsGenerator:
         # [batch_size, num_of_UTs, num_of_BSs, max_number_of_clusters, 1]
         power_scaling = tf.expand_dims(power_scaling, axis=-1)
 
+
+
         # account for disabled rays
         # ray_mask:      [batch_size, num_of_UTs, num_of_BSs, max_number_of_clusters, num_rays]
         # power_scaling: [batch_size, num_of_UTs, num_of_BSs, max_number_of_clusters, 1]
@@ -939,6 +967,25 @@ class ChannelCoefficientsGenerator:
         # [batch_size, num_tx, num_rx, num_clusters(19), num_rays(20), num_rx_antennas, num_tx_antennas, num_time_steps]
         h_full *= tf.reshape(power_scaling, shape)
 
+
+        # ----------------- debug -------------
+        rx_orientations = topology.rx_orientations
+
+        # Transform arrival angles to the LCS
+        s = tf.shape(rx_orientations)
+        shape = tf.concat([[s[0],1],[s[1],1,1,s[-1]]], 0)
+        rx_orientations = tf.reshape(rx_orientations, shape)
+        zoa_prime, aoa_prime = self._gcs_to_lcs(rx_orientations, rays.zoa, rays.aoa)
+
+        hist_aoa_power(
+            aoa=aoa_prime/PI*180.,                     # tf.float32/float64, shape [B,T,R,C,S]
+            power_scaling=tf.reduce_mean(h_full, axis=(5,6,7)),           # tf.complex64/complex128, same shape
+            num_aoa_bins=30,            # int N
+            power_bins=128,          # int P for median approximation
+            aoa_range=None,          # tuple (amin, amax) or None
+            power_range=None,        # tuple (pmin, pmax) or None
+            eps=1e-12)
+        # ----------------- End debug -------------
 
         return h_full
 
@@ -1155,3 +1202,144 @@ class ChannelCoefficientsGenerator:
 
 
 
+# ------------------------ debug -------------
+
+def hist_aoa_power(
+    aoa,                     # [B,T,R,C,S], float32/64
+    power_scaling,           # [B,T,R,C,S], complex64/128
+    num_aoa_bins,            # int
+    power_bins=128,          # int (unused now; kept for API compat)
+    aoa_range=None,          # (amin, amax) or None
+    power_range=None,        # (pmin, pmax) or None
+    eps=1e-12,
+    decimals=6,              # (unused now; kept for API compat)
+    print_header=True,
+    title="AoA histogram",
+    floatfmt="{:.4g}",
+    colw=10,
+    iwidth=5,
+):
+    """
+    Histogram of AoA with per-bin count, mean power, min power, and max power.
+    Prints a table:
+      idx | [aoa_left, aoa_right) | count | mean_power | min_power | max_power
+
+    Notes
+    -----
+    • No graph/XLA constraints: uses Python printing and .numpy() conversions.
+    • 'power_bins' and 'decimals' are kept for backward API compatibility but not used.
+    """
+
+    # ---- tensors & power ----
+    aoa = tf.convert_to_tensor(aoa)
+    z   = tf.convert_to_tensor(power_scaling)
+    p   = tf.math.real(z * tf.math.conj(z))  # |z|^2
+
+    # ---- flatten ----
+    a_flat = tf.reshape(aoa, [-1])
+    p_flat = tf.reshape(p,   [-1])
+
+    # ---- ranges ----
+    if aoa_range is None:
+        a_min = tf.reduce_min(a_flat)
+        a_max = tf.reduce_max(a_flat)
+    else:
+        a_min = tf.cast(aoa_range[0], a_flat.dtype)
+        a_max = tf.cast(aoa_range[1], a_flat.dtype)
+
+    if power_range is None:
+        glob_p_min = tf.reduce_min(p_flat)
+        glob_p_max = tf.reduce_max(p_flat)
+    else:
+        glob_p_min = tf.cast(power_range[0], p_flat.dtype)
+        glob_p_max = tf.cast(power_range[1], p_flat.dtype)
+
+    a_span = tf.maximum(a_max - a_min, tf.cast(eps, a_flat.dtype))
+
+    N = tf.cast(num_aoa_bins, tf.int32)
+
+    # ---- AoA binning (indices) ----
+    a_norm = (a_flat - a_min) / a_span
+    a_idx  = tf.clip_by_value(
+        tf.cast(tf.floor(a_norm * tf.cast(N, a_flat.dtype)), tf.int32), 0, N-1
+    )
+
+    # ---- per-bin count / sum / mean ----
+    ones_i = tf.ones_like(a_idx, dtype=tf.int32)
+    counts_i   = tf.math.unsorted_segment_sum(ones_i, a_idx, num_segments=N)  # [N] int32
+    sum_power  = tf.math.unsorted_segment_sum(p_flat, a_idx, num_segments=N)  # [N] float
+    mean_power = sum_power / tf.maximum(tf.cast(counts_i, p_flat.dtype), tf.cast(1., p_flat.dtype))
+
+    # ---- per-bin min / max (mask empties later) ----
+    p_min_bin = tf.math.unsorted_segment_min(p_flat, a_idx, num_segments=N)   # empty -> +max
+    p_max_bin = tf.math.unsorted_segment_max(p_flat, a_idx, num_segments=N)   # empty -> -max
+    nonempty  = counts_i > 0
+
+    # ---- AoA bin edges for printing ----
+    a_bin_w = a_span / tf.cast(N, a_flat.dtype)
+    a_left  = a_min + a_bin_w * tf.cast(tf.range(N, dtype=tf.int32), a_flat.dtype)
+    a_right = a_left + a_bin_w
+
+    # ================= Pretty printing (Python-side) =================
+    def fmtf(v):
+        return (floatfmt.format(float(v))).rjust(colw)
+
+    def fmti(v):
+        return str(int(v)).rjust(iwidth)
+
+    def fmt_opt(v, ok):
+        return fmtf(v) if ok else "-".rjust(colw)
+
+    if print_header:
+        print("\n" + title)
+        print(f"N = {int(N.numpy())}")
+        print("Assumption: power = |power_scaling|^2")
+        print(
+            f"aoa ∈ [{floatfmt.format(float(a_min.numpy()))}, "
+            f"{floatfmt.format(float(a_max.numpy()))}], "
+            f"power ∈ [{floatfmt.format(float(glob_p_min.numpy()))}, "
+            f"{floatfmt.format(float(glob_p_max.numpy()))}]"
+        )
+        print("Columns: idx | [aoa_left, aoa_right) | count | mean_power | min_power | max_power")
+
+    # build table rows
+    N_py = int(N.numpy())
+    a_left_np   = a_left.numpy()
+    a_right_np  = a_right.numpy()
+    counts_np   = counts_i.numpy()
+    mean_np     = mean_power.numpy()
+    pmin_np     = p_min_bin.numpy()
+    pmax_np     = p_max_bin.numpy()
+    nonempty_np = nonempty.numpy()
+
+    lines = []
+    for i in range(N_py):
+        lines.append(
+            "  "
+            + fmti(i)
+            + " | ["
+            + fmtf(a_left_np[i]) + ", " + fmtf(a_right_np[i])
+            + ") | "
+            + fmti(counts_np[i])
+            + " | "
+            + fmtf(mean_np[i])
+            + " | "
+            + fmt_opt(pmin_np[i], nonempty_np[i])
+            + " | "
+            + fmt_opt(pmax_np[i], nonempty_np[i])
+        )
+    print("\n".join(lines))
+
+    # ---- return tensors (mask empties to 0 for min/max) ----
+    p_min_bin_masked = tf.where(nonempty, p_min_bin, tf.zeros_like(p_min_bin))
+    p_max_bin_masked = tf.where(nonempty, p_max_bin, tf.zeros_like(p_max_bin))
+
+    return {
+        "aoa_left": a_left,                                  # [N]
+        "aoa_right": a_right,                                # [N]
+        "counts": tf.cast(counts_i, p_flat.dtype),           # [N] float for convenience
+        "mean_power": mean_power,                            # [N]
+        "min_power": p_min_bin_masked,                       # [N], 0 for empty bins
+        "max_power": p_max_bin_masked,                       # [N], 0 for empty bins
+        "nonempty_mask": nonempty,                           # [N] bool
+    }

@@ -60,7 +60,8 @@ class SystemLevelChannel(ChannelModel):
             Path delays [s]
     """
 
-    def __init__(self, scenario, always_generate_lsp=False, random_num_clusters=False, random_num_rays=False):
+    def __init__(self, scenario, always_generate_lsp=False, 
+        random_num_clusters=False, random_num_rays=False, mask_doa=False):
 
         self._random_num_clusters = random_num_clusters
 
@@ -87,6 +88,7 @@ class SystemLevelChannel(ChannelModel):
                                             scenario.carrier_frequency,
                                             tx_array, rx_array,
                                             subclustering=True,
+                                            mask_doa=mask_doa,
                                             dtype = scenario.dtype)
 
         # Are new LSPs needed
