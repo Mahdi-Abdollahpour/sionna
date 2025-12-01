@@ -59,7 +59,7 @@ class SystemLevelScenario(ABC):
 
     def __init__(self, carrier_frequency, o2i_model, ut_array, bs_array,
         direction, enable_pathloss=True, enable_shadow_fading=True,
-        dtype=tf.complex64):
+        num_rays=None, dtype=tf.complex64):
 
         # Carrier frequency (Hz)
         self._carrier_frequency = tf.constant(carrier_frequency,
@@ -103,6 +103,7 @@ class SystemLevelScenario(ABC):
         self._in_state = None
         self._requested_los = None
 
+        self._num_rays = num_rays
         # Load parameters for this scenario
         self._load_params()
 
@@ -340,7 +341,10 @@ class SystemLevelScenario(ABC):
     @property
     def num_clusters_nlos(self):
         r"""Number of clusters for NLoS scenario"""
-        return self._params_nlos["numClusters"]
+        if self._num_rays is None:
+            return self._params_nlos["numClusters"]
+        else:
+            return self._num_rays[0]
 
     @property
     def num_clusters_indoor(self):
@@ -350,9 +354,14 @@ class SystemLevelScenario(ABC):
     @property
     def num_clusters_max(self):
         r"""Maximum number of clusters over indoor, LoS, and NLoS scenarios"""
+
+        if self._num_rays is None:
+            num_clusters_nlos = self._params_nlos["numClusters"]
+        else:
+            num_clusters_nlos = self._num_rays[0]
         # Different models have different number of clusters
         num_clusters_los = self._params_los["numClusters"]
-        num_clusters_nlos = self._params_nlos["numClusters"]
+        # num_clusters_nlos = self._params_nlos["numClusters"]
         num_clusters_o2i = self._params_o2i["numClusters"]
         num_clusters_max = tf.reduce_max([num_clusters_los, num_clusters_nlos,
             num_clusters_o2i])

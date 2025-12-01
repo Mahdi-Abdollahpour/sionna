@@ -218,8 +218,8 @@ class RaysGenerator:
         # make 0's more probable (triangular distribution)
         thresh = tf.math.sqrt(thresh)
         thresh = tf.math.sqrt(thresh)
-        # thresh = tf.math.sqrt(thresh)
-        # thresh = tf.math.sqrt(thresh)
+        thresh = tf.math.sqrt(thresh)
+        thresh = tf.math.sqrt(thresh)
         # thresh = tf.math.sqrt(thresh)
 
 
@@ -347,7 +347,8 @@ class RaysGenerator:
             thresh = tf.random.uniform([scenario.batch_size, scenario.num_bs, scenario.num_ut, 1],
              minval=0., maxval=1., dtype=self._scenario.dtype.real_dtype)
 
-            # make 0's more probable (triangular distribution)
+            # make 0's more probable (triangular/.. distribution)
+            thresh = tf.math.sqrt(thresh)
             thresh = tf.math.sqrt(thresh)
             thresh = tf.math.sqrt(thresh)
 

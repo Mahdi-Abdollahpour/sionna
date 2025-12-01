@@ -9,7 +9,7 @@
 # Mahdi Abdollahpour
 # mahdi.abdollahpour@unibo.it
 # 2025
-
+DEBUG=0
 """
 Class for sampling channel impulse responses following 3GPP TR38.901
 specifications and giving LSPs and rays.
@@ -969,22 +969,23 @@ class ChannelCoefficientsGenerator:
 
 
         # ----------------- debug -------------
-        rx_orientations = topology.rx_orientations
+        if DEBUG>0:
+            rx_orientations = topology.rx_orientations
 
-        # Transform arrival angles to the LCS
-        s = tf.shape(rx_orientations)
-        shape = tf.concat([[s[0],1],[s[1],1,1,s[-1]]], 0)
-        rx_orientations = tf.reshape(rx_orientations, shape)
-        zoa_prime, aoa_prime = self._gcs_to_lcs(rx_orientations, rays.zoa, rays.aoa)
+            # Transform arrival angles to the LCS
+            s = tf.shape(rx_orientations)
+            shape = tf.concat([[s[0],1],[s[1],1,1,s[-1]]], 0)
+            rx_orientations = tf.reshape(rx_orientations, shape)
+            zoa_prime, aoa_prime = self._gcs_to_lcs(rx_orientations, rays.zoa, rays.aoa)
 
-        hist_aoa_power(
-            aoa=aoa_prime/PI*180.,                     # tf.float32/float64, shape [B,T,R,C,S]
-            power_scaling=tf.reduce_mean(h_full, axis=(5,6,7)),           # tf.complex64/complex128, same shape
-            num_aoa_bins=30,            # int N
-            power_bins=128,          # int P for median approximation
-            aoa_range=None,          # tuple (amin, amax) or None
-            power_range=None,        # tuple (pmin, pmax) or None
-            eps=1e-12)
+            hist_aoa_power(
+                aoa=aoa_prime/PI*180.,                     # tf.float32/float64, shape [B,T,R,C,S]
+                power_scaling=tf.reduce_mean(h_full, axis=(5,6,7)),           # tf.complex64/complex128, same shape
+                num_aoa_bins=30,            # int N
+                power_bins=128,          # int P for median approximation
+                aoa_range=None,          # tuple (amin, amax) or None
+                power_range=None,        # tuple (pmin, pmax) or None
+                eps=1e-12)
         # ----------------- End debug -------------
 
         return h_full
@@ -1223,11 +1224,6 @@ def hist_aoa_power(
     Histogram of AoA with per-bin count, mean power, min power, and max power.
     Prints a table:
       idx | [aoa_left, aoa_right) | count | mean_power | min_power | max_power
-
-    Notes
-    -----
-    • No graph/XLA constraints: uses Python printing and .numpy() conversions.
-    • 'power_bins' and 'decimals' are kept for backward API compatibility but not used.
     """
 
     # ---- tensors & power ----

@@ -61,7 +61,10 @@ class SystemLevelChannel(ChannelModel):
     """
 
     def __init__(self, scenario, always_generate_lsp=False, 
-        random_num_clusters=False, random_num_rays=False, mask_doa=False):
+        random_num_clusters=False, random_num_rays=False, 
+        mask_doa=False):
+
+
 
         self._random_num_clusters = random_num_clusters
 

@@ -95,7 +95,11 @@ class UMiScenario(SystemLevelScenario):
     @property
     def rays_per_cluster(self):
         r"""Number of rays per cluster"""
-        return tf.constant(20, tf.int32)
+        if self._num_rays is None:
+            return tf.constant(20, tf.int32)
+        else:
+            return tf.constant(self._num_rays[1], tf.int32)
+
 
     @property
     def los_parameter_filepath(self):

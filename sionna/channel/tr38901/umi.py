@@ -124,11 +124,12 @@ class UMi(SystemLevelChannel):
         direction, enable_pathloss=True, enable_shadow_fading=True,
         always_generate_lsp=False, 
         random_num_clusters=False, random_num_rays=False, mask_doa=False,
+        num_rays=None,
         dtype=tf.complex64):
 
         # RMa scenario
         scenario = UMiScenario(carrier_frequency, o2i_model, ut_array, bs_array,
                                direction, enable_pathloss, enable_shadow_fading,
-                               dtype)
+                               num_rays, dtype)
 
         super().__init__(scenario, always_generate_lsp, random_num_clusters, random_num_rays, mask_doa)
