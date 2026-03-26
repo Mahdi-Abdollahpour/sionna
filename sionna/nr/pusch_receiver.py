@@ -134,6 +134,7 @@ class PUSCHReceiver(Layer):
                  mimo_detector=None,
                  tb_decoder=None,
                  return_tb_crc_status=False,
+                 return_ch_est=False,
                  stream_management=None,
                  input_domain="freq",
                  l_min=None,
@@ -148,7 +149,7 @@ class PUSCHReceiver(Layer):
         self._input_domain = input_domain
 
         self._return_tb_crc_status = return_tb_crc_status
-
+        self._return_ch_est = return_ch_est
         self._resource_grid = pusch_transmitter.resource_grid
 
         # (Optionally) Create OFDMDemodulator
@@ -279,6 +280,10 @@ class PUSCHReceiver(Layer):
         b_hat, tb_crc_status = self._tb_decoder(llr)
 
         if self._return_tb_crc_status:
+            if self._return_ch_est:
+                return b_hat, tb_crc_status, h_hat
             return b_hat, tb_crc_status
         else:
+            if self._return_ch_est:
+                return b_hat, h_hat
             return b_hat
