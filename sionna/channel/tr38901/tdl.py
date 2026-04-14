@@ -1,8 +1,18 @@
+
+# This file modifies Sionna TDL model to generate batches with randomized delay-spread
+# Mahdi Abdollahpour
+# mahdi.abdollahpour@unibo.it
+# 2025
+
+
 #
-# SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 """Tapped delay line (TDL) channel model from 3GPP TR38.901 specification"""
+
+import core.runtime as _runtime
+
 
 import json
 from importlib_resources import files
@@ -384,7 +394,13 @@ class TDL(ChannelModel):
         else:
             print("Warning: The delay spread cannot be set with this model")
 
-    def __call__(self, batch_size, num_time_steps, sampling_frequency):
+    def __call__(self, batch_size, num_time_steps, sampling_frequency, delay_spread=None):
+
+        
+        if self._scale_delays:
+            self._delay_spread = delay_spread
+        else:
+            print("Warning: The delay spread cannot be set with this model")
 
         # Time steps
         sample_times = tf.range(num_time_steps, dtype=self._real_dtype)\
@@ -394,7 +410,7 @@ class TDL(ChannelModel):
         # Generate random maximum Doppler shifts for each sample
         # The Doppler shift is different for each TX-RX link, but shared by
         # all RX ant and TX ant couple for a given link.
-        doppler = config.tf_rng.uniform([batch_size,
+        doppler = tf.random.uniform([batch_size,
                                          1, # num rx
                                          1, # num rx ant
                                          1, # num tx
@@ -408,7 +424,7 @@ class TDL(ChannelModel):
 
         # Eq. (7) in the paper [TDL] (see class docstring)
         # The angle of arrival is different for each TX-RX link.
-        theta = config.tf_rng.uniform([batch_size,
+        theta = tf.random.uniform([batch_size,
                                        1, # num rx
                                        1, # 1 RX antenna
                                        1, # num tx
@@ -424,7 +440,7 @@ class TDL(ChannelModel):
         alpha = self._alpha_const + theta
 
         # Eq. (6a)-(6c) in the paper [TDL] (see class docstring)
-        phi = config.tf_rng.uniform([batch_size,
+        phi = tf.random.uniform([batch_size,
                                      1, # 1 RX
                                      self._num_rx_ant, # 1 RX antenna
                                      1, # 1 TX
@@ -455,7 +471,7 @@ class TDL(ChannelModel):
             # distribution
 
             # Specular component phase shift
-            phi_0 = config.tf_rng.uniform([batch_size,
+            phi_0 = tf.random.uniform([batch_size,
                                            1, # num rx
                                            1, # 1 RX antenna
                                            1, # num tx
