@@ -268,6 +268,10 @@ class PUSCHReceiver(Layer):
             h_hat = h
             err_var = tf.cast(0, dtype=h_hat.dtype.real_dtype)
         else:
+            # y: [batch_size, num_rx, num_rx_ant, num_ofdm_symbols, fft_size]
+            # no: [batch_size, num_rx, num_rx_ant] or only the first n>=0 dims
+            # h_hat, err_var: [batch_size, num_rx, num_rx_ant, num_tx,
+            #   num_streams_per_tx, num_ofdm_symbols, fft_size]
             h_hat,err_var = self._channel_estimator([y, no])
 
         # MIMO Detection
