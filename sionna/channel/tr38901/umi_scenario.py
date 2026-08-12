@@ -45,6 +45,10 @@ class UMiScenario(SystemLevelScenario):
         dtype. Defaults to `tf.complex64`.
     """
 
+    # UMi is the only scenario implementing `rays_per_cluster` against a
+    # user-defined `num_rays`.
+    _supports_num_rays = True
+
     #########################################
     # Public methods and properties
     #########################################

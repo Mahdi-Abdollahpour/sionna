@@ -5,6 +5,7 @@
 """Class used to define a system level 3GPP channel simulation scenario"""
 
 import json
+import warnings
 from importlib_resources import files
 import tensorflow as tf
 from abc import ABC, abstractmethod
@@ -57,6 +58,11 @@ class SystemLevelScenario(ABC):
         dtype. Defaults to `tf.complex64`.
     """
 
+    # 'num_rays' (user-defined number of clusters/rays) is implemented for UMi
+    # only. Subclasses that support it must override this to True; for all
+    # others a provided 'num_rays' is warned about and ignored.
+    _supports_num_rays = False
+
     def __init__(self, carrier_frequency, o2i_model, ut_array, bs_array,
         direction, enable_pathloss=True, enable_shadow_fading=True,
         num_rays=None, dtype=tf.complex64):
@@ -102,6 +108,22 @@ class SystemLevelScenario(ABC):
         self._ut_velocities = None
         self._in_state = None
         self._requested_los = None
+
+        if num_rays is not None:
+            if not (isinstance(num_rays, (list, tuple)) and len(num_rays) == 2):
+                warnings.warn(
+                    f"Ignoring 'num_rays'={num_rays!r} in "
+                    f"{type(self).__name__}: expected None or "
+                    "[num_clusters, num_rays_per_cluster]. Falling back to "
+                    "the 3GPP table values. (A value of an unexpected type "
+                    "here usually means an argument was passed positionally "
+                    "into the wrong slot.)")
+                num_rays = None
+            elif not self._supports_num_rays:
+                warnings.warn(
+                    "'num_rays' is only supported by UMi; ignoring it for "
+                    f"{type(self).__name__} and using the 3GPP table values.")
+                num_rays = None
 
         self._num_rays = num_rays
         # Load parameters for this scenario

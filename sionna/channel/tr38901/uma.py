@@ -127,6 +127,6 @@ class UMa(SystemLevelChannel):
         # RMa scenario
         scenario = UMaScenario(carrier_frequency, o2i_model, ut_array, bs_array,
                                direction, enable_pathloss, enable_shadow_fading,
-                               dtype)
+                               dtype=dtype)
 
         super().__init__(scenario, always_generate_lsp)
