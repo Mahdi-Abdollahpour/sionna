@@ -1067,6 +1067,10 @@ class ChannelCoefficientsGenerator:
             # Sum over rays
             h_nlos = tf.reduce_sum(h_full, axis=4)
             delays_nlos = rays.delays
+            # Without subclustering there is no strong/weak split, so there is
+            # no cluster ordering to report (only consumed by the system-level
+            # models, which always enable subclustering).
+            strongest_clusters = None
 
         # Order the delays in ascending orders
         delays_ind = tf.argsort(delays_nlos, axis=-1,

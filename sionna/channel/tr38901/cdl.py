@@ -265,7 +265,14 @@ class CDL(ChannelModel):
                                                          subclustering=False,
                                                          dtype=dtype)
 
-    def __call__(self, batch_size, num_time_steps, sampling_frequency):
+    def __call__(self, batch_size, num_time_steps, sampling_frequency,
+                 delay_spread=None):
+
+        # Allows the delay spread to be resampled per batch (see the same
+        # extension on TDL.__call__). The delays scale linearly with
+        # self._delay_spread below, so overwriting it here is sufficient.
+        if delay_spread is not None:
+            self._delay_spread = delay_spread
 
         ## Topology for generating channel coefficients
         # Sample random velocities
@@ -318,13 +325,21 @@ class CDL(ChannelModel):
        # Random coupling
         aoa, aod, zoa, zod = self._random_coupling(aoa, aod, zoa, zod)
 
+        # CDL uses the full, fixed cluster/ray structure of the profile, so no
+        # ray or cluster is ever removed. Rays carries the masks used by the
+        # system-level models (0: kept, 1: removed), hence all-zeros here.
+        ray_mask = tf.zeros_like(aoa)
+        cluster_mask = tf.zeros_like(powers)
+
         rays = Rays(delays=delays,
                     powers=powers,
                     aoa=aoa,
                     aod=aod,
                     zoa=zoa,
                     zod=zod,
-                    xpr=xpr)
+                    xpr=xpr,
+                    ray_mask=ray_mask,
+                    cluster_mask=cluster_mask)
 
         # Sampling channel impulse responses
         # pylint: disable=unbalanced-tuple-unpacking
