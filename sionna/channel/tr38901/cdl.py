@@ -445,6 +445,18 @@ class CDL(ChannelModel):
         with open(source) as parameter_file:
             params = json.load(parameter_file)
 
+        self._process_parameters(params)
+
+    def _process_parameters(self, params):
+        r"""Build the CIR-generator tensors from a CDL parameter dict.
+
+        ``params`` uses the same schema as the CDL JSON files (see
+        :meth:`_load_parameters`). Split out so that subclasses (e.g. GCDL)
+        can feed a programmatically generated parameter set through the
+        exact same processing (ray offsets, LoS split, deg->rad, link
+        direction swap).
+        """
+
         # LoS scenario ?
         self._los = tf.cast(params['los'], tf.bool)
 

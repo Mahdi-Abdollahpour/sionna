@@ -22,5 +22,6 @@ from .uma import UMa
 from .umi import UMi
 from .tdl import TDL
 from .cdl import CDL
+from .gcdl import GCDL, generate_gcdl_params, measure_gcdl_params, save_gcdl_json, anchor_knobs
 
 from .channel_params import ChannelParams
