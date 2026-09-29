@@ -120,14 +120,18 @@ class UMi(SystemLevelChannel):
             Path delays [s]
     """
 
+    # Subclass seam: swap in a modified scenario without copying __init__.
+    _scenario_cls = UMiScenario
+
     def __init__(self, carrier_frequency, o2i_model, ut_array, bs_array,
         direction, enable_pathloss=True, enable_shadow_fading=True,
-        always_generate_lsp=False, 
+        always_generate_lsp=False,
         random_num_clusters=False, random_num_rays=False, mask_doa=False, num_rays=None,
         dtype=tf.complex64):
 
         # RMa scenario
-        scenario = UMiScenario(carrier_frequency, o2i_model, ut_array, bs_array,
+        scenario = self._scenario_cls(carrier_frequency, o2i_model, ut_array,
+                               bs_array,
                                direction, enable_pathloss, enable_shadow_fading,
                                num_rays, dtype)
 

@@ -20,6 +20,7 @@ from .system_level_channel import SystemLevelChannel
 from .rma import RMa
 from .uma import UMa
 from .umi import UMi
+from .umi_tds import UMiTDS, UMiTDSScenario
 from .tdl import TDL
 from .cdl import CDL
 from .gcdl import GCDL, generate_gcdl_params, measure_gcdl_params, save_gcdl_json, anchor_knobs
