@@ -8,11 +8,11 @@ from sionna.ofdm import BaseChannelEstimator
 from sionna.utils import expand_to_rank
 
 
-def _block_length(own, others):
-    """Smallest L dividing len(own) such that the pilots of every other port
-    sum to zero against own over every L consecutive pilots."""
+def _block_length(own, others, min_length=1):
+    """Smallest L >= min_length dividing len(own) such that the pilots of
+    every other port sum to zero against own over every L consecutive pilots."""
     m = len(own)
-    for length in range(1, m + 1):
+    for length in range(max(1, min(min_length, m)), m + 1):
         if m % length:
             continue
         ok = True
@@ -49,6 +49,10 @@ class SRSLSChannelEstimator(BaseChannelEstimator):
     interpolator : :class:`~sionna.ofdm.BaseChannelInterpolator` or `None`
         Custom interpolator; overrides ``interpolation_type``.
 
+    min_length : int
+        Smallest L. Defaults to 1: averaging only where ports share resource
+        elements.
+
     dtype : tf.Dtype
         Datatype. Defaults to `tf.complex64`.
 
@@ -64,7 +68,7 @@ class SRSLSChannelEstimator(BaseChannelEstimator):
     err_var : Same shape as ``h_hat``, tf.float
     """
     def __init__(self, resource_grid, interpolation_type="lin", interpolator=None,
-                 dtype=tf.complex64, **kwargs):
+                 min_length=1, dtype=tf.complex64, **kwargs):
         super().__init__(resource_grid, interpolation_type, interpolator, dtype, **kwargs)
         pilots = self._pilot_pattern.pilots.numpy()                 # [T, S, P]
         mask = self._pilot_pattern.mask.numpy()
@@ -91,7 +95,7 @@ class SRSLSChannelEstimator(BaseChannelEstimator):
                         np.sum(own[ts] & (symbol == l)) == len(idx), \
                         "Ports sharing resource elements must share all of them"
                     others.append(pilots[ts][idx])
-                length = _block_length(pilots[(t, s)][idx], others)
+                length = _block_length(pilots[(t, s)][idx], others, min_length)
                 assert length is not None, \
                     "Ports sharing resource elements cannot be separated within one OFDM symbol"
                 blocks[(t, s)] += list(idx.reshape(-1, length))
